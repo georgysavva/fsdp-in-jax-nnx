@@ -9,6 +9,7 @@ import optax
 import orbax.checkpoint as ocp
 import torch
 from flax import nnx
+from jax import random
 from jax.experimental import mesh_utils
 from matplotlib.figure import Figure
 from torch.utils.data import DataLoader, Dataset
@@ -42,9 +43,7 @@ class MLP(nnx.Module):
     def __init__(self, din, dmid, dout, *, rngs: nnx.Rngs):
         self.fc1 = nnx.Linear(din, dmid, rngs=rngs)
         self.fc2 = nnx.Linear(dmid, dmid, rngs=rngs)
-        # self.dropout = nnx.Dropout(
-        #     rate=0.1, deterministic=True
-        # )  # stochastic dropout layer
+        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
         self.fc3 = nnx.Linear(dmid, dout, rngs=rngs)
 
     def __call__(self, x, rngs):
@@ -52,20 +51,22 @@ class MLP(nnx.Module):
         x = nnx.relu(x)
         x = self.fc2(x)
         x = nnx.relu(x)
-        # x = self.dropout(x)  # Apply dropout
+        x = self.dropout(x)  # Apply dropout
         x = self.fc3(x)
         return x, rngs
 
 
 def init_ema(model: nnx.Module) -> nnx.State:
     """Initialize the Exponential Moving Average (EMA) model."""
-    ema_state = jax.tree.map(lambda x: jnp.zeros_like(x), nnx.state(model))
+    ema_state = jax.tree.map(lambda x: jnp.zeros_like(x), nnx.state(model, nnx.Param))
     return ema_state
 
 
 def init(learning_rate):
     """Initialize the MLP model."""
-    model = MLP(IN_FEATURES, HIDDEN_DIM, OUT_FEATURES, rngs=nnx.Rngs(0))
+    model = MLP(
+        IN_FEATURES, HIDDEN_DIM, OUT_FEATURES, rngs=nnx.Rngs(0, dropout=random.key(1))
+    )
     opt = nnx.Optimizer(
         model,
         optax.adamw(learning_rate=learning_rate),
@@ -256,11 +257,14 @@ def update_ema(
     ema_decay: float,
 ) -> nnx.State:
     """Update the EMA model."""
-    ema_state = jax.tree.map(
-        lambda p_model, p_ema: p_ema * ema_decay + p_model * (1 - ema_decay),
-        model_state,
-        ema_state,
-    )
+
+    def update_param(p_model, p_ema):
+        # Skip PRNG keys and only update actual parameters
+        # if hasattr(p_model, "dtype") and "key" in str(p_model.dtype):
+        #     return p_ema  # Return EMA PRNG key unchanged
+        return p_ema * ema_decay + p_model * (1 - ema_decay)
+
+    ema_state = jax.tree.map(update_param, model_state, ema_state)
     return ema_state
 
 
@@ -286,6 +290,8 @@ def main(args):
     if jax.process_index() == 0:
         log_shard_map("Opt state sharding", opt_state)
         log_shard_map("EMA state sharding", ema_state)
+        print("Opt state", opt_state)
+        print("EMA state", ema_state)
     opt = nnx.merge(opt_graph, opt_state)
     opt.model.train()  # Set the model to training mode
     opt_graph, opt_state = nnx.split(opt)
@@ -323,6 +329,8 @@ def main(args):
         if jax.process_index() == 0:
             log_shard_map("Opt state sharding after restore", opt_state)
             log_shard_map("EMA state sharding after restore", ema_state)
+            print("Opt state after restore", opt_state)
+            print("EMA state after restore", ema_state)
     start_step = 0 if latest_step is None else latest_step
     local_batch_size = args.batch_size // jax.process_count()
     train_dataloader = DataLoader(
@@ -354,7 +362,7 @@ def main(args):
 
     # Training loop
     train_iter = iter(train_dataloader)
-    ema_decay = 0.99
+    ema_decay = 0.9999
 
     for step in range(start_step, start_step + args.steps):
         # Get training batch
@@ -372,7 +380,8 @@ def main(args):
         )
 
         # Update EMA
-        ema_state = update_ema_fn(opt_state["model"], ema_state, ema_decay)
+        model_state = nnx.filter_state(opt_state["model"], nnx.Param)
+        ema_state = update_ema_fn(model_state, ema_state, ema_decay)
 
         # Log training loss
         if jax.process_index() == 0 and (step + 1) % args.log_interval == 0:
@@ -397,8 +406,9 @@ def main(args):
             )
 
             # Test loss for EMA model
+            ema_state_with_rngs = nnx.merge_state(opt_state["model"], ema_state)
             test_loss_ema, y_pred_ema, _ = test_step_fn(
-                model_graph_eval, ema_state, x_test, y_test, rngs_eval
+                model_graph_eval, ema_state_with_rngs, x_test, y_test, rngs_eval
             )
 
             # Convert back to numpy for plotting
