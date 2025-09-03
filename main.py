@@ -45,6 +45,7 @@ class MLP(nnx.Module):
         self.fc2 = nnx.Linear(dmid, dmid, rngs=rngs)
         self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
         self.fc3 = nnx.Linear(dmid, dout, rngs=rngs)
+        self.rngs = rngs
 
     def __call__(self, x, rngs):
         x = self.fc1(x)  # Apply first layer
@@ -58,14 +59,17 @@ class MLP(nnx.Module):
 
 def init_ema(model: nnx.Module) -> nnx.State:
     """Initialize the Exponential Moving Average (EMA) model."""
-    ema_state = jax.tree.map(lambda x: jnp.zeros_like(x), nnx.state(model, nnx.Param))
+    ema_state = jax.tree.map(lambda x: jnp.zeros_like(x), nnx.state(model))
     return ema_state
 
 
 def init(learning_rate):
     """Initialize the MLP model."""
     model = MLP(
-        IN_FEATURES, HIDDEN_DIM, OUT_FEATURES, rngs=nnx.Rngs(0, dropout=random.key(1))
+        IN_FEATURES,
+        HIDDEN_DIM,
+        OUT_FEATURES,
+        rngs=nnx.Rngs(0, dropout=random.key(1), noise=random.key(2)),
     )
     opt = nnx.Optimizer(
         model,
@@ -264,7 +268,12 @@ def update_ema(
         #     return p_ema  # Return EMA PRNG key unchanged
         return p_ema * ema_decay + p_model * (1 - ema_decay)
 
-    ema_state = jax.tree.map(update_param, model_state, ema_state)
+    ema_state_no_rng = jax.tree.map(
+        update_param,
+        nnx.filter_state(model_state, nnx.Param),
+        nnx.filter_state(ema_state, nnx.Param),
+    )
+    ema_state = nnx.merge_state(ema_state, ema_state_no_rng)
     return ema_state
 
 
@@ -380,8 +389,7 @@ def main(args):
         )
 
         # Update EMA
-        model_state = nnx.filter_state(opt_state["model"], nnx.Param)
-        ema_state = update_ema_fn(model_state, ema_state, ema_decay)
+        ema_state = update_ema_fn(opt_state["model"], ema_state, ema_decay)
 
         # Log training loss
         if jax.process_index() == 0 and (step + 1) % args.log_interval == 0:
@@ -406,9 +414,9 @@ def main(args):
             )
 
             # Test loss for EMA model
-            ema_state_with_rngs = nnx.merge_state(opt_state["model"], ema_state)
+            # ema_state_with_rngs = nnx.merge_state(opt_state["model"], ema_state)
             test_loss_ema, y_pred_ema, _ = test_step_fn(
-                model_graph_eval, ema_state_with_rngs, x_test, y_test, rngs_eval
+                model_graph_eval, ema_state, x_test, y_test, rngs_eval
             )
 
             # Convert back to numpy for plotting
