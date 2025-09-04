@@ -14,13 +14,13 @@ def parse_args():
     parser.add_argument(
         "--gcp-zone",
         type=str,
-        default="us-east5-a",
+        required=True,
         help="GCP zone for the TPU resource",
     )
     parser.add_argument(
         "--gcp-project",
         type=str,
-        default="nyu-vision-lab",
+        required=True,
         help="GCP project for the TPU resource",
     )
 
