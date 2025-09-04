@@ -7,7 +7,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import orbax.checkpoint as ocp
+
+# import orbax.checkpoint as ocp
 import torch
 from flax import nnx
 from jax import random
@@ -501,36 +502,36 @@ def main(args: argparse.Namespace) -> None:
     opt_graph, opt_state = nnx.split(opt)
     opt.model.eval()
     model_graph_eval, _ = nnx.split(opt.model)
-    ckpt_mngr = ocp.CheckpointManager(
-        args.checkpoint_dir,
-        options=ocp.CheckpointManagerOptions(
-            save_interval_steps=1,
-            max_to_keep=2,
-            step_prefix=args.experiment_name,
-            enable_async_checkpointing=False,
-            create=True,
-        ),
-    )
+    # ckpt_mngr = ocp.CheckpointManager(
+    #     args.checkpoint_dir,
+    #     options=ocp.CheckpointManagerOptions(
+    #         save_interval_steps=1,
+    #         max_to_keep=2,
+    #         step_prefix=args.experiment_name,
+    #         enable_async_checkpointing=False,
+    #         create=True,
+    #     ),
+    # )
     if jax.process_index() == 0:
         print("after checkpoint")
 
     latest_step = None
-    latest_step = ckpt_mngr.latest_step()
-    if latest_step is not None:
-        state_restored = ckpt_mngr.restore(
-            latest_step,
-            args=ocp.args.Composite(
-                opt_state=ocp.args.StandardRestore(opt_state),
-                ema_state=ocp.args.StandardRestore(ema_state),
-            ),
-        )
-        opt_state, ema_state = (
-            state_restored.opt_state,
-            state_restored.ema_state,
-        )
-        if jax.process_index() == 0:
-            log_shard_map("Opt state sharding after restore", opt_state)
-            log_shard_map("EMA state sharding after restore", ema_state)
+    # latest_step = ckpt_mngr.latest_step()
+    # if latest_step is not None:
+    #     state_restored = ckpt_mngr.restore(
+    #         latest_step,
+    #         args=ocp.args.Composite(
+    #             opt_state=ocp.args.StandardRestore(opt_state),
+    #             ema_state=ocp.args.StandardRestore(ema_state),
+    #         ),
+    #     )
+    #     opt_state, ema_state = (
+    #         state_restored.opt_state,
+    #         state_restored.ema_state,
+    #     )
+    #     if jax.process_index() == 0:
+    #         log_shard_map("Opt state sharding after restore", opt_state)
+    #         log_shard_map("EMA state sharding after restore", ema_state)
     start_step = 0 if latest_step is None else latest_step
     local_batch_size = args.batch_size // jax.process_count()
     train_dataloader = DataLoader(
@@ -662,14 +663,14 @@ def main(args: argparse.Namespace) -> None:
                         f"EMA Test Loss: {test_loss_ema:.6f}"
                     )
 
-        if (step + 1) % args.save_interval == 0:
-            ckpt_mngr.save(
-                step + 1,
-                args=ocp.args.Composite(
-                    opt_state=ocp.args.StandardSave(opt_state),
-                    ema_state=ocp.args.StandardSave(ema_state),
-                ),
-            )
+        # if (step + 1) % args.save_interval == 0:
+        #     ckpt_mngr.save(
+        #         step + 1,
+        #         args=ocp.args.Composite(
+        #             opt_state=ocp.args.StandardSave(opt_state),
+        #             ema_state=ocp.args.StandardSave(ema_state),
+        #         ),
+        #     )
 
 
 if __name__ == "__main__":
