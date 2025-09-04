@@ -490,9 +490,9 @@ def main(args: argparse.Namespace) -> None:
         init_fn,
         out_shardings=(repl_sharding, opt_state_sharding, ema_state_sharding),
     )()
-    if jax.process_index() == 0:
-        log_shard_map("Opt state sharding", opt_state)
-        log_shard_map("EMA state sharding", ema_state)
+    # if jax.process_index() == 0:
+    #     log_shard_map("Opt state sharding", opt_state)
+    #     log_shard_map("EMA state sharding", ema_state)
     if jax.process_index() == 0:
         print("before merge")
     opt = nnx.merge(opt_graph, opt_state)
