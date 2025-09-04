@@ -1,6 +1,7 @@
 import argparse
 import functools
 import os
+from typing import Any, Generator, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -20,51 +21,127 @@ HIDDEN_DIM = 1024
 
 
 class SinDataset(Dataset):
-    def __init__(self, seed):
+    """A PyTorch dataset that generates sine function data points.
+
+    This dataset generates random x values from [-π, π] and computes y = sin(x).
+    The dataset uses a seeded random number generator for reproducible results.
+
+    Args:
+        seed: Random seed for reproducible data generation.
+    """
+
+    def __init__(self, seed: int) -> None:
+        """Initialize the dataset with a random seed.
+
+        Args:
+            seed: Random seed for data generation.
+        """
         self.seed = seed
         self.reset_seed()
 
-    def reset_seed(self):
+    def reset_seed(self) -> None:
+        """Reset the random number generator to the initial seed.
+
+        This is useful for ensuring reproducible evaluation data.
+        """
         self.rng = torch.Generator()
         self.rng.manual_seed(self.seed)
 
-    def __len__(self):
-        return 2**31 - 1  # Large number for infinite sampling
+    def __len__(self) -> int:
+        """Return the length of the dataset.
 
-    def __getitem__(self, idx):
-        x = (
-            torch.rand(1, generator=self.rng) * 2 * torch.pi - torch.pi
-        )  # Random x in [-π, π]
+        Returns:
+            A very large number representing the dataset size.
+        """
+        return 2**31 - 1
+
+    def __getitem__(self, idx: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Generate a single data point.
+
+        Args:
+            idx: Index (unused, but required for Dataset interface).
+
+        Returns:
+            Tuple of (x, y) where x is a random value in [-π, π] and y = sin(x).
+        """
+        x = torch.rand(1, generator=self.rng) * 2 * torch.pi - torch.pi
         y = torch.sin(x)
         return x.numpy(), y.numpy()
 
 
 class MLP(nnx.Module):
-    def __init__(self, din, dmid, dout, *, rngs: nnx.Rngs):
+    """A Multi-Layer Perceptron (MLP) neural network using Flax NNX.
+
+    This is a simple feedforward neural network with two hidden layers,
+    ReLU activations, and dropout regularization.
+
+    Args:
+        din: Number of input features.
+        dmid: Number of hidden units in each hidden layer.
+        dout: Number of output features.
+        rngs: Random number generators for parameter initialization and dropout.
+    """
+
+    def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs) -> None:
+        """Initialize the MLP with specified dimensions.
+
+        Args:
+            din: Number of input features.
+            dmid: Number of hidden units in each hidden layer.
+            dout: Number of output features.
+            rngs: Random number generators for parameter initialization and dropout.
+        """
         self.fc1 = nnx.Linear(din, dmid, rngs=rngs)
         self.fc2 = nnx.Linear(dmid, dmid, rngs=rngs)
         self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
         self.fc3 = nnx.Linear(dmid, dout, rngs=rngs)
         self.rngs = rngs
 
-    def __call__(self, x, rngs):
-        x = self.fc1(x)  # Apply first layer
+    def __call__(self, x: jax.Array) -> jax.Array:
+        """Forward pass through the MLP.
+
+        Args:
+            x: Input tensor of shape (batch_size, din).
+
+        Returns:
+            Output tensor of shape (batch_size, dout).
+        """
+        x = self.fc1(x)
         x = nnx.relu(x)
         x = self.fc2(x)
         x = nnx.relu(x)
-        x = self.dropout(x)  # Apply dropout
+        x = self.dropout(x)
         x = self.fc3(x)
-        return x, rngs
+        return x
 
 
 def init_ema(model: nnx.Module) -> nnx.State:
-    """Initialize the Exponential Moving Average (EMA) model."""
+    """Initialize exponential moving average (EMA) state for a model.
+
+    Creates a zero-initialized state tree with the same structure as the model's state.
+
+    Args:
+        model: The neural network model to create EMA state for.
+
+    Returns:
+        EMA state with the same structure as the model state, but zero-initialized.
+    """
     ema_state = jax.tree.map(lambda x: jnp.zeros_like(x), nnx.state(model))
     return ema_state
 
 
-def init(learning_rate):
-    """Initialize the MLP model."""
+def init(learning_rate: float) -> Tuple[nnx.GraphDef, nnx.State, nnx.State]:
+    """Initialize the model, optimizer, and EMA state.
+
+    Creates a new MLP model, wraps it in an AdamW optimizer, and initializes
+    the exponential moving average state.
+
+    Args:
+        learning_rate: Learning rate for the AdamW optimizer.
+
+    Returns:
+        Tuple of (optimizer_graph, optimizer_state, ema_state).
+    """
     model = MLP(
         IN_FEATURES,
         HIDDEN_DIM,
@@ -80,14 +157,42 @@ def init(learning_rate):
     return opt_graph, opt_state, ema_state
 
 
-def create_device_mesh(axis_name):
+def create_device_mesh(axis_name: str) -> jax.sharding.Mesh:
+    """Create a JAX device mesh for distributed computation.
+
+    Creates a 1D mesh using all available devices and assigns the given axis name.
+
+    Args:
+        axis_name: Name to assign to the mesh axis (e.g., 'data' for data parallelism).
+
+    Returns:
+        JAX mesh object for distributed computation.
+    """
     device_mesh = mesh_utils.create_device_mesh(
         (jax.device_count(),), devices=jax.devices()
     )
     return jax.sharding.Mesh(device_mesh, (axis_name,))
 
 
-def build_shardings(data_axis: str):
+def build_shardings(
+    data_axis: str,
+) -> Tuple[
+    jax.sharding.Mesh,
+    jax.sharding.NamedSharding,
+    jax.sharding.NamedSharding,
+]:
+    """Build JAX sharding configurations for distributed computation.
+
+    Creates a device mesh and two sharding strategies:
+    - Data sharding: for sharding data across devices
+    - Replicated sharding: for replicating data across all devices
+
+    Args:
+        data_axis: Name of the axis for data parallelism.
+
+    Returns:
+        Tuple of (device_mesh, data_sharding, replicated_sharding).
+    """
     device_mesh = create_device_mesh(
         data_axis,
     )
@@ -101,8 +206,28 @@ def build_shardings(data_axis: str):
     return device_mesh, data_sharding, repl_sharding
 
 
-def fsdp(axis: str, cur_spec, mesh, var_state, min_size_to_shard):
-    """Fully Sharded Data Parallel tactic - shard largest available dimension along given mesh axis."""
+def fsdp(
+    axis: str,
+    cur_spec: Tuple[Any, ...],
+    mesh: jax.sharding.Mesh,
+    var_state: nnx.VariableState,
+    min_size_to_shard: int,
+) -> Tuple[Any, ...]:
+    """Implement Fully Sharded Data Parallel (FSDP) sharding strategy.
+
+    Determines how to shard a parameter tensor across devices. Shards the largest
+    dimension that is divisible by the number of devices and meets the minimum size requirement.
+
+    Args:
+        axis: Name of the mesh axis to shard along.
+        cur_spec: Current partition specification.
+        mesh: JAX device mesh.
+        var_state: Variable state containing the parameter tensor.
+        min_size_to_shard: Minimum tensor size to consider for sharding.
+
+    Returns:
+        Updated partition specification with sharding applied if appropriate.
+    """
     arr = var_state.value
     if arr is None:
         return cur_spec
@@ -119,8 +244,20 @@ def fsdp(axis: str, cur_spec, mesh, var_state, min_size_to_shard):
     return cur_spec
 
 
-def flatten_state(state: nnx.State, path: tuple[str, ...] = ()):
-    """Recursively traverse an NNX VariableState, yielding (path, VariableState)."""
+def flatten_state(
+    state: nnx.State, path: Tuple[str, ...] = ()
+) -> Generator[Tuple[str, nnx.VariableState], None, None]:
+    """Recursively flatten a nested state tree into (name, variable_state) pairs.
+
+    Traverses the state tree and yields each variable with its hierarchical path name.
+
+    Args:
+        state: The state tree to flatten (can be nested).
+        path: Current path in the hierarchy (used for recursion).
+
+    Yields:
+        Tuples of (path_name, variable_state) for each leaf variable.
+    """
     if isinstance(state, nnx.VariableState):
         name = "/".join(str(p) for p in path)
         yield name, state
@@ -137,10 +274,21 @@ def infer_sharding(
     mesh: jax.sharding.Mesh,
     axis: str,
     min_size_to_shard: int = 2**20,
-):
-    """
-    Infer a sharding specification for an NNX model state by applying FSDP to every parameter.
-    axis: mesh axis name to shard along. Defaults to the first mesh axis.
+) -> nnx.State:
+    """Infer optimal sharding strategy for a model state using FSDP.
+
+    Analyzes each parameter in the state and determines the best sharding strategy
+    based on tensor size and dimensions. Creates a sharding tree that matches
+    the structure of the input state.
+
+    Args:
+        state: Model state to create sharding for.
+        mesh: JAX device mesh for distributed computation.
+        axis: Name of the mesh axis for sharding.
+        min_size_to_shard: Minimum tensor size to consider for sharding.
+
+    Returns:
+        Sharding tree with the same structure as the input state.
     """
     flat_params = list(flatten_state(state))
     vars_states = [vs for _, vs in flat_params]
@@ -163,14 +311,19 @@ def infer_sharding(
         ),
         shardings,
     )
+    print("Sharding tree", type(sharding_tree))
     return sharding_tree
 
 
 def log_shard_map(tag: str, state: nnx.State) -> None:
-    """
-    Emit one log line per *device shard* (not per tensor), e.g.
+    """Log the sharding mapping of arrays to devices for debugging.
 
-        params/fc2/kernel   shard=(slice(4096,8192), slice(None))  → TPU(0,3)
+    Prints a detailed breakdown of how each parameter is sharded across devices,
+    showing which array indices are stored on which devices.
+
+    Args:
+        tag: Descriptive tag for the logging output.
+        state: Model state to analyze for sharding information.
     """
     print("── Shard ↦ device map: %s ──", tag)
 
@@ -185,32 +338,44 @@ def train_step(
     opt_state: nnx.State,
     x: jax.Array,
     y: jax.Array,
-    rngs: jax.Array,
-):
-    """Training step for DiT on ImageNet. **All updates happened in-place.**
+    add_noise: bool = False,
+) -> Tuple[nnx.State, jax.Array]:
+    """Perform a single training step with gradient computation and parameter update.
+
+    Computes the forward pass, loss, gradients, and updates model parameters.
+    Optionally adds noise to the target values for data augmentation.
 
     Args:
-    - graph: graphdef of the NNX model.
-    - state: state of the NNX model.
-    - rng_state: rng state for the training step.
-    - batch: batch of samples and labels.
+        opt_graph: Optimizer graph definition (static structure).
+        opt_state: Optimizer state (parameters and optimizer state).
+        x: Input batch of shape (batch_size, input_dim).
+        y: Target batch of shape (batch_size, output_dim).
+        add_noise: Whether to add noise to targets for data augmentation.
+
+    Returns:
+        Tuple of (updated_optimizer_state, loss_value).
     """
     optimizer = nnx.merge(opt_graph, opt_state)
     model = optimizer.model
 
-    def loss_fn(model, rngs: jax.Array):
-        y_hat, rngs = model(x, rngs)
-        loss = jnp.mean((y_hat - y) ** 2)
-        return loss, rngs
+    def loss_fn(model: MLP) -> jax.Array:
+        y_hat = model(x)
+        if add_noise:
+            noise_key = model.rngs["noise"]()
+            noise = jax.random.normal(noise_key, y.shape)
+            y_noisy = y + noise
+            loss = jnp.mean((y_hat - y_noisy) ** 2)
+        else:
+            loss = jnp.mean((y_hat - y) ** 2)
+        return loss
 
-    grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
-    (loss, rngs), grads = grad_fn(model, rngs=rngs)
-
+    grad_fn = nnx.value_and_grad(loss_fn)
+    loss, grads = grad_fn(model)
     optimizer.update(grads)
 
     _, opt_state = nnx.split(optimizer)
 
-    return opt_state, loss, rngs
+    return opt_state, loss
 
 
 def test_step(
@@ -218,31 +383,43 @@ def test_step(
     model_state: nnx.State,
     x: jax.Array,
     y: jax.Array,
-    rngs: jax.Array,
-):
-    """Compute loss without updating model (test-time)."""
+) -> Tuple[jax.Array, jax.Array]:
+    """Perform a single evaluation step without parameter updates.
+
+    Computes the forward pass and loss for evaluation purposes.
+
+    Args:
+        model_graph: Model graph definition (static structure).
+        model_state: Model state (parameters only, no optimizer state).
+        x: Input batch of shape (batch_size, input_dim).
+        y: Target batch of shape (batch_size, output_dim).
+
+    Returns:
+        Tuple of (loss_value, predictions).
+    """
     model = nnx.merge(model_graph, model_state)
-    y_hat, rngs = model(x, rngs)
+    y_hat = model(x)
     loss = jnp.mean((y_hat - y) ** 2)
-    # We mean-reduce across the batch dimension, then pmean across devices.
-    return loss, y_hat, rngs
+    return loss, y_hat
 
 
 def make_fsarray_from_local_slice(
     local_slice: jnp.ndarray,
-    global_devices: list,
+    global_devices: list[jax.Device],
     axis: str,
-):
-    """Create a fully-sharded global device array from local host arrays.
+) -> jax.Array:
+    """Create a globally sharded array from a local data slice.
+
+    Takes a local data slice and creates a globally sharded JAX array
+    by distributing the data across multiple devices and processes.
 
     Args:
-        local_slice: Something convertible to a numpy array (eg also TF tensors)
-        that is this host's slice of the global array.
-        global_devices: The list of global devices. Needed for consistent ordering.
+        local_slice: Local portion of the data on this process.
+        global_devices: List of all devices across all processes.
+        axis: Name of the axis for sharding.
 
     Returns:
-        The global on-device array which consists of all local slices stacked
-        together in the order consistent with the devices.
+        Globally sharded JAX array with proper device placement.
     """
     mesh = jax.sharding.Mesh(global_devices, (axis,))
     sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec(axis))
@@ -260,12 +437,21 @@ def update_ema(
     ema_state: nnx.State,
     ema_decay: float,
 ) -> nnx.State:
-    """Update the EMA model."""
+    """Update exponential moving average (EMA) of model parameters.
 
-    def update_param(p_model, p_ema):
-        # Skip PRNG keys and only update actual parameters
-        # if hasattr(p_model, "dtype") and "key" in str(p_model.dtype):
-        #     return p_ema  # Return EMA PRNG key unchanged
+    Computes the exponential moving average using the formula:
+    ema_new = ema_decay * ema_old + (1 - ema_decay) * model_param
+
+    Args:
+        model_state: Current model state with updated parameters.
+        ema_state: Current EMA state to be updated.
+        ema_decay: Decay factor for EMA (typically close to 1.0, e.g., 0.9999).
+
+    Returns:
+        Updated EMA state.
+    """
+
+    def update_param(p_model: jax.Array, p_ema: jax.Array) -> jax.Array:
         return p_ema * ema_decay + p_model * (1 - ema_decay)
 
     ema_state_no_rng = jax.tree.map(
@@ -277,7 +463,19 @@ def update_ema(
     return ema_state
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
+    """Main training loop for distributed MLP training with FSDP.
+
+    Implements a complete training pipeline including:
+    - Distributed initialization and device mesh setup
+    - Model and optimizer initialization with FSDP sharding
+    - Checkpoint loading and saving
+    - Training loop with EMA updates
+    - Periodic evaluation and visualization
+
+    Args:
+        args: Command-line arguments containing hyperparameters and configuration.
+    """
     if not args.gpu:
         jax.distributed.initialize()
     print("Available JAX devices", jax.devices())
@@ -302,23 +500,21 @@ def main(args):
         print("Opt state", opt_state)
         print("EMA state", ema_state)
     opt = nnx.merge(opt_graph, opt_state)
-    opt.model.train()  # Set the model to training mode
+    opt.model.train()
     opt_graph, opt_state = nnx.split(opt)
     opt.model.eval()
     model_graph_eval, _ = nnx.split(opt.model)
     ckpt_mngr = ocp.CheckpointManager(
         os.path.abspath(args.checkpoint_dir),
         options=ocp.CheckpointManagerOptions(
-            save_interval_steps=1,  # this handles the control flow of how many steps to save
-            max_to_keep=2,  # this handles the control flow of how many checkpoints to keep
+            save_interval_steps=1,
+            max_to_keep=2,
             step_prefix=args.experiment_name,
             enable_async_checkpointing=False,
             create=True,
         ),
     )
 
-    rngs = jax.random.PRNGKey(42)
-    rngs_eval = jax.random.PRNGKey(123)
     latest_step = None
     latest_step = ckpt_mngr.latest_step()
     if latest_step is not None:
@@ -327,13 +523,11 @@ def main(args):
             args=ocp.args.Composite(
                 opt_state=ocp.args.StandardRestore(opt_state),
                 ema_state=ocp.args.StandardRestore(ema_state),
-                rngs=ocp.args.ArrayRestore(rngs),
             ),
         )
-        opt_state, ema_state, rngs = (
+        opt_state, ema_state = (
             state_restored.opt_state,
             state_restored.ema_state,
-            state_restored.rngs,
         )
         if jax.process_index() == 0:
             log_shard_map("Opt state sharding after restore", opt_state)
@@ -350,18 +544,16 @@ def main(args):
         test_dataset, batch_size=local_batch_size, shuffle=False
     )
 
-    # Initialize RNGs for training
-
-    # Compile training and test functions
     train_step_fn = jax.jit(
         train_step,
         donate_argnums=(1,),
-        out_shardings=(opt_state_sharding, repl_sharding, repl_sharding),
+        static_argnums=(4,),
+        out_shardings=(opt_state_sharding, repl_sharding),
     )
 
     test_step_fn = jax.jit(
         test_step,
-        out_shardings=(repl_sharding, data_sharding, repl_sharding),
+        out_shardings=(repl_sharding, data_sharding),
     )
     update_ema_fn = jax.jit(
         update_ema,
@@ -369,12 +561,10 @@ def main(args):
         donate_argnums=(1,),
     )
 
-    # Training loop
     train_iter = iter(train_dataloader)
     ema_decay = 0.9999
 
     for step in range(start_step, start_step + args.steps):
-        # Get training batch
         x_batch, y_batch = next(train_iter)
         x_batch = make_fsarray_from_local_slice(
             x_batch, mesh.devices.flatten(), data_axis
@@ -383,21 +573,16 @@ def main(args):
             y_batch, mesh.devices.flatten(), data_axis
         )
 
-        # Training step
-        opt_state, train_loss, rngs = train_step_fn(
-            opt_graph, opt_state, x_batch, y_batch, rngs
+        opt_state, train_loss = train_step_fn(
+            opt_graph, opt_state, x_batch, y_batch, args.add_noise
         )
 
-        # Update EMA
         ema_state = update_ema_fn(opt_state["model"], ema_state, ema_decay)
 
-        # Log training loss
         if jax.process_index() == 0 and (step + 1) % args.log_interval == 0:
             print(f"Step {step+1}, Train Loss: {train_loss:.6f}")
 
-        # Test evaluation
         if (step + 1) % args.test_interval == 0:
-            # Reset test dataset to original seed for consistent evaluation
             test_dataset.reset_seed()
             test_iter = iter(test_dataloader)
             x_test, y_test = next(test_iter)
@@ -408,18 +593,14 @@ def main(args):
                 y_test, mesh.devices.flatten(), data_axis
             )
 
-            # Test loss for main model
-            test_loss, y_pred_model, _ = test_step_fn(
-                model_graph_eval, opt_state["model"], x_test, y_test, rngs_eval
+            test_loss, y_pred_model = test_step_fn(
+                model_graph_eval, opt_state["model"], x_test, y_test
             )
 
-            # Test loss for EMA model
-            # ema_state_with_rngs = nnx.merge_state(opt_state["model"], ema_state)
-            test_loss_ema, y_pred_ema, _ = test_step_fn(
-                model_graph_eval, ema_state, x_test, y_test, rngs_eval
+            test_loss_ema, y_pred_ema = test_step_fn(
+                model_graph_eval, ema_state, x_test, y_test
             )
 
-            # Convert back to numpy for plotting
             y_pred_model = jax.experimental.multihost_utils.process_allgather(
                 y_pred_model, tiled=True
             )
@@ -439,27 +620,32 @@ def main(args):
                 y_pred_ema_plot = np.array(y_pred_ema).flatten()
                 y_pred_model_plot = np.array(y_pred_model).flatten()
 
-                # Sort by x for better plotting
                 sort_idx = np.argsort(x_plot)
                 x_plot = x_plot[sort_idx]
                 y_true_plot = y_true_plot[sort_idx]
                 y_pred_ema_plot = y_pred_ema_plot[sort_idx]
                 y_pred_model_plot = y_pred_model_plot[sort_idx]
 
-                # Create output directory
                 experiment_output_dir = os.path.join(
                     args.output_dir, args.experiment_name
                 )
                 os.makedirs(experiment_output_dir, exist_ok=True)
-                # Create the plot
                 fig = Figure(figsize=(10, 6))
                 ax = fig.add_subplot(111)
                 ax.scatter(x_plot, y_true_plot, alpha=0.7, label="Ground Truth", s=20)
                 ax.scatter(
-                    x_plot, y_pred_model_plot, alpha=0.7, label="Model Prediction", s=20
+                    x_plot,
+                    y_pred_model_plot,
+                    alpha=0.7,
+                    label="Model Prediction",
+                    s=20,
                 )
                 ax.scatter(
-                    x_plot, y_pred_ema_plot, alpha=0.7, label="EMA Prediction", s=20
+                    x_plot,
+                    y_pred_ema_plot,
+                    alpha=0.7,
+                    label="EMA Prediction",
+                    s=20,
                 )
                 ax.set_xlabel("X")
                 ax.set_ylabel("Y")
@@ -467,26 +653,23 @@ def main(args):
                 ax.legend()
                 ax.grid(True, alpha=0.3)
 
-                # Save the plot
                 plot_path = os.path.join(experiment_output_dir, f"eval_{step+1}.png")
                 fig.savefig(plot_path, dpi=300, bbox_inches="tight")
 
                 print(f"Plot saved to {plot_path}")
 
-                # Calculate and print final metrics
                 if jax.process_index() == 0:
                     print(
-                        f"Step {step+1}, Test Loss: {test_loss:.6f}, EMA Test Loss: {test_loss_ema:.6f}"
+                        f"Step {step+1}, Test Loss: {test_loss:.6f}, "
+                        f"EMA Test Loss: {test_loss_ema:.6f}"
                     )
 
-        # Save checkpoint
         if (step + 1) % args.save_interval == 0:
             ckpt_mngr.save(
                 step + 1,
                 args=ocp.args.Composite(
                     opt_state=ocp.args.StandardSave(opt_state),
                     ema_state=ocp.args.StandardSave(ema_state),
-                    rngs=ocp.args.ArraySave(rngs),
                 ),
             )
 
@@ -503,5 +686,6 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_dir", type=str, default="./checkpoints")
     parser.add_argument("--output_dir", type=str, default="./outputs")
     parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--add_noise", action="store_true", default=False)
     args = parser.parse_args()
     main(args)
