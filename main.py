@@ -311,7 +311,6 @@ def infer_sharding(
         ),
         shardings,
     )
-    print("Sharding tree", type(sharding_tree))
     return sharding_tree
 
 
@@ -486,9 +485,6 @@ def main(args: argparse.Namespace) -> None:
     _, opt_state_shape, ema_state_shape = jax.eval_shape(init_fn)
     opt_state_sharding = infer_sharding(opt_state_shape, mesh, data_axis)
     ema_state_sharding = infer_sharding(ema_state_shape, mesh, data_axis)
-    if jax.process_index() == 0:
-        print("Opt state sharding:", opt_state_sharding)
-        print("EMA state sharding:", ema_state_sharding)
 
     opt_graph, opt_state, ema_state = jax.jit(
         init_fn,
@@ -497,8 +493,6 @@ def main(args: argparse.Namespace) -> None:
     if jax.process_index() == 0:
         log_shard_map("Opt state sharding", opt_state)
         log_shard_map("EMA state sharding", ema_state)
-        print("Opt state", opt_state)
-        print("EMA state", ema_state)
     opt = nnx.merge(opt_graph, opt_state)
     opt.model.train()
     opt_graph, opt_state = nnx.split(opt)
@@ -532,8 +526,6 @@ def main(args: argparse.Namespace) -> None:
         if jax.process_index() == 0:
             log_shard_map("Opt state sharding after restore", opt_state)
             log_shard_map("EMA state sharding after restore", ema_state)
-            print("Opt state after restore", opt_state)
-            print("EMA state after restore", ema_state)
     start_step = 0 if latest_step is None else latest_step
     local_batch_size = args.batch_size // jax.process_count()
     train_dataloader = DataLoader(
