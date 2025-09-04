@@ -23,7 +23,9 @@ def parse_args():
         required=True,
         help="GCP project for the TPU resource",
     )
-
+    parser.add_argument(
+        "--no-setup", action="store_true", default=False, help="No setup"
+    )
     # Git configuration
     parser.add_argument(
         "--git-repo-url",
@@ -120,6 +122,7 @@ if __name__ == "__main__":
 
     run_gcloud_command(kill_python_process(args))
     run_gcloud_command(pull_repo(args))
-    run_gcloud_command(install_dependencies(args))
+    if not args.no_setup:
+        run_gcloud_command(install_dependencies(args))
 
     run_gcloud_command(run_command(args))
