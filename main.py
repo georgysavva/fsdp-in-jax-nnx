@@ -475,6 +475,7 @@ def main(args: argparse.Namespace) -> None:
     Args:
         args: Command-line arguments containing hyperparameters and configuration.
     """
+    print("args", args)
     if not args.gpu:
         jax.distributed.initialize()
     print("Available JAX devices", jax.devices())
