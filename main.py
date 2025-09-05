@@ -527,7 +527,6 @@ def main(args: argparse.Namespace) -> None:
         options=ocp.CheckpointManagerOptions(
             save_interval_steps=args.save_interval,
             max_to_keep=2,
-            create=False,
             step_prefix=args.experiment_name,
             enable_async_checkpointing=False,
         ),
