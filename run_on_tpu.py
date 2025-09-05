@@ -93,20 +93,32 @@ def kill_python_process(args):
     return format_gcloud_command(args, command)
 
 
-def clear_space(args):
+def install_conda(args):
     command = (
-        "sudo bash -c '"
-        "for d in /home/*; do "
-        '[ -d "$d" ] || continue; '
-        'case "$d" in '
-        '"/home/$SUDO_USER"|"/home/tpu-runtime"|"/home/ubuntu"|"/home/root") continue ;; '
-        "esac; "
-        'if [ "$(du -s "$d" | cut -f1)" -ge 1048576 ]; then '
-        'echo "Removing $d"; '
-        'rm -rf -- "$d"; '
-        "fi; "
-        "done'"
+        'if [ ! -d "$HOME/miniconda3" ]; then '
+        "    echo 'Installing conda...'; "
+        "    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh; "
+        "    bash Miniconda3-latest-Linux-x86_64.sh -b -p $HOME/miniconda3; "
+        "    rm Miniconda3-latest-Linux-x86_64.sh; "
+        "else "
+        "    echo 'Conda is already installed.'; "
+        "fi;"
     )
+    return format_gcloud_command(args, command)
+
+
+def setup_environment(args):
+    command = f"cd {args.git_repo_dir}; \
+        source $HOME/miniconda3/bin/activate; \
+        if ! conda env list | grep -q '^fsdp-jax[[:space:]]'; then \
+        echo 'Creating conda environment jax-oasis from environment.yml...'; \
+        CONDA_PLUGINS_AUTO_ACCEPT_TOS=yes conda env create -y -f environment.yml -n fsdp-jax; \
+        else \
+        echo 'Conda environment fsdp-jax already exists.'; \
+        fi; \
+        conda activate fsdp-jax; \
+        source $HOME/miniconda3/bin/activate fsdp-jax; \
+        sudo chmod -R 777 /tmp/tpu_logs/;"
     return format_gcloud_command(args, command)
 
 
@@ -123,6 +135,8 @@ if __name__ == "__main__":
     run_gcloud_command(kill_python_process(args))
     run_gcloud_command(pull_repo(args))
     if not args.no_setup:
+        run_gcloud_command(install_conda(args))
+        run_gcloud_command(setup_environment(args))
         run_gcloud_command(install_dependencies(args))
 
     run_gcloud_command(run_command(args))
