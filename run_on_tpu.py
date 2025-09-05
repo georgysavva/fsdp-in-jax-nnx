@@ -77,9 +77,7 @@ def pull_repo(args):
 
 
 def install_dependencies(args):
-    command = (
-        f"cd {args.git_repo_dir}; pip install -e .; pip install -r requirements_tpu.txt"
-    )
+    command = f"cd {args.git_repo_dir}; source $HOME/miniconda3/bin/activate fsdp-jax; pip install -e .; pip install -r requirements_tpu.txt"
     return format_gcloud_command(args, command)
 
 
@@ -111,7 +109,7 @@ def setup_environment(args):
     command = f"cd {args.git_repo_dir}; \
         source $HOME/miniconda3/bin/activate; \
         if ! conda env list | grep -q '^fsdp-jax[[:space:]]'; then \
-        echo 'Creating conda environment jax-oasis from environment.yml...'; \
+        echo 'Creating conda environment fsdp-jax from environment.yml...'; \
         CONDA_PLUGINS_AUTO_ACCEPT_TOS=yes conda env create -y -f environment.yml -n fsdp-jax; \
         else \
         echo 'Conda environment fsdp-jax already exists.'; \
