@@ -122,6 +122,7 @@ def setup_environment(args):
 
 def run_command(args):
     command = f"cd {args.git_repo_dir} ; \
+        source $HOME/miniconda3/bin/activate fsdp-jax; \
         sudo chmod -R 777 /tmp/tpu_logs/; \
         {args.run_command} "
     return format_gcloud_command(args, command)
