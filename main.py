@@ -525,11 +525,10 @@ def main(args: argparse.Namespace) -> None:
     ckpt_mngr = ocp.CheckpointManager(
         args.checkpoint_dir,
         options=ocp.CheckpointManagerOptions(
-            save_interval_steps=1,
+            save_interval_steps=args.save_interval,
             max_to_keep=2,
             step_prefix=args.experiment_name,
             enable_async_checkpointing=False,
-            create=True,
         ),
     )
     if jax.process_index() == 0:
