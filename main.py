@@ -477,6 +477,9 @@ def main(args: argparse.Namespace) -> None:
     """
     print("args", args)
     if not args.gpu:
+        assert args.checkpoint_dir.startswith(
+            "gs://"
+        ), "Checkpoint directory must be a GCS path"
         jax.distributed.initialize()
     print("Available JAX devices", jax.devices())
 
