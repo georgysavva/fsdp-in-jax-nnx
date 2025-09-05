@@ -1,5 +1,6 @@
 import argparse
 import functools
+import logging
 import os
 from typing import Any, Generator, Tuple
 
@@ -324,12 +325,12 @@ def log_shard_map(tag: str, state: nnx.State) -> None:
         tag: Descriptive tag for the logging output.
         state: Model state to analyze for sharding information.
     """
-    print("── Shard ↦ device map: %s ──", tag)
+    logging.info(f"── Shard ↦ device map: {tag} ──")
 
     for name, var in flatten_state(state):
         arr = var.value if isinstance(var, nnx.VariableState) else var
         for d, idx in arr.sharding.devices_indices_map(arr.shape).items():
-            print(f" {name}  {idx}  → {d}")
+            logging.info(f" {name}  {idx}  → {d}")
 
 
 def train_step(
@@ -462,6 +463,20 @@ def update_ema(
     return ema_state
 
 
+def setup_logging() -> None:
+    """Setup logging configuration for INFO level console output."""
+    # Configure logging format
+    log_format = "%(asctime)s - %(levelname)s - %(message)s"
+
+    # Setup basic logging configuration
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        handlers=[logging.StreamHandler()],  # Console output only
+        force=True,  # Override any existing configuration
+    )
+
+
 def main(args: argparse.Namespace) -> None:
     """Main training loop for distributed MLP training with FSDP.
 
@@ -475,13 +490,16 @@ def main(args: argparse.Namespace) -> None:
     Args:
         args: Command-line arguments containing hyperparameters and configuration.
     """
-    print("args", args)
+    # Setup logging
+    setup_logging()
+    logging.info(f"Starting training with args: {args}")
+
     if not args.gpu:
         assert args.checkpoint_dir.startswith(
             "gs://"
         ), "Checkpoint directory must be a GCS path"
         jax.distributed.initialize()
-    print("Available JAX devices", jax.devices())
+    logging.info(f"Available JAX devices: {jax.devices()}")
 
     data_axis = "data"
     mesh, data_sharding, repl_sharding = build_shardings(data_axis="data")
@@ -494,11 +512,11 @@ def main(args: argparse.Namespace) -> None:
         init_fn,
         out_shardings=(repl_sharding, opt_state_sharding, ema_state_sharding),
     )()
-    # if jax.process_index() == 0:
-    #     log_shard_map("Opt state sharding", opt_state)
-    #     log_shard_map("EMA state sharding", ema_state)
     if jax.process_index() == 0:
-        print("before merge")
+        log_shard_map("Opt state sharding", opt_state)
+        log_shard_map("EMA state sharding", ema_state)
+    if jax.process_index() == 0:
+        logging.info("Merging optimizer graph and state")
     opt = nnx.merge(opt_graph, opt_state)
     opt.model.train()
     opt_graph, opt_state = nnx.split(opt)
@@ -515,7 +533,7 @@ def main(args: argparse.Namespace) -> None:
         ),
     )
     if jax.process_index() == 0:
-        print("after checkpoint")
+        logging.info("Checkpoint manager initialized")
 
     latest_step = None
     latest_step = ckpt_mngr.latest_step()
@@ -532,10 +550,23 @@ def main(args: argparse.Namespace) -> None:
             state_restored.ema_state,
         )
         if jax.process_index() == 0:
+            logging.info("Checkpoint restored successfully")
             log_shard_map("Opt state sharding after restore", opt_state)
             log_shard_map("EMA state sharding after restore", ema_state)
     start_step = 0 if latest_step is None else latest_step
     local_batch_size = args.batch_size // jax.process_count()
+
+    if jax.process_index() == 0:
+        logging.info(f"Training configuration:")
+        logging.info(f"  - Starting from step: {start_step}")
+        logging.info(f"  - Total processes: {jax.process_count()}")
+        logging.info(f"  - Global batch size: {args.batch_size}")
+        logging.info(f"  - Local batch size: {local_batch_size}")
+        logging.info(f"  - Learning rate: {args.lr}")
+        logging.info(f"  - Steps to run: {args.steps}")
+        logging.info(f"  - Log interval: {args.log_interval}")
+        logging.info(f"  - Test interval: {args.test_interval}")
+        logging.info(f"  - Save interval: {args.save_interval}")
     train_dataloader = DataLoader(
         SinDataset(seed=start_step), batch_size=local_batch_size, shuffle=False
     )
@@ -581,7 +612,7 @@ def main(args: argparse.Namespace) -> None:
             ema_state = update_ema_fn(opt_state["model"], ema_state, ema_decay)
 
         if jax.process_index() == 0 and (step + 1) % args.log_interval == 0:
-            print(f"Step {step+1}, Train Loss: {train_loss:.6f}")
+            logging.info(f"Step {step+1}, Train Loss: {train_loss:.6f}")
 
         if (step + 1) % args.test_interval == 0:
             test_dataset.reset_seed()
@@ -657,15 +688,17 @@ def main(args: argparse.Namespace) -> None:
                 plot_path = os.path.join(experiment_output_dir, f"eval_{step+1}.png")
                 fig.savefig(plot_path, dpi=300, bbox_inches="tight")
 
-                print(f"Plot saved to {plot_path}")
+                logging.info(f"Plot saved to {plot_path}")
 
                 if jax.process_index() == 0:
-                    print(
+                    logging.info(
                         f"Step {step+1}, Test Loss: {test_loss:.6f}, "
                         f"EMA Test Loss: {test_loss_ema:.6f}"
                     )
 
         if (step + 1) % args.save_interval == 0:
+            if jax.process_index() == 0:
+                logging.info(f"Saving checkpoint at step {step + 1}")
             ckpt_mngr.save(
                 step + 1,
                 args=ocp.args.Composite(
@@ -673,6 +706,8 @@ def main(args: argparse.Namespace) -> None:
                     ema_state=ocp.args.StandardSave(ema_state),
                 ),
             )
+            if jax.process_index() == 0:
+                logging.info(f"Checkpoint saved successfully")
 
 
 if __name__ == "__main__":
