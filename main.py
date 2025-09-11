@@ -540,8 +540,8 @@ def main(args: argparse.Namespace) -> None:
         state_restored = ckpt_mngr.restore(
             latest_step,
             args=ocp.args.Composite(
-                opt_state=ocp.args.StandardRestore(opt_state),
-                ema_state=ocp.args.StandardRestore(ema_state),
+                opt_state=ocp.args.PyTreeRestore(opt_state),
+                ema_state=ocp.args.PyTreeRestore(ema_state),
             ),
         )
         opt_state, ema_state = (
@@ -701,8 +701,8 @@ def main(args: argparse.Namespace) -> None:
             ckpt_mngr.save(
                 step + 1,
                 args=ocp.args.Composite(
-                    opt_state=ocp.args.StandardSave(opt_state),
-                    ema_state=ocp.args.StandardSave(ema_state),
+                    opt_state=ocp.args.PyTreeSave(opt_state),
+                    ema_state=ocp.args.PyTreeSave(ema_state),
                 ),
             )
             if jax.process_index() == 0:
