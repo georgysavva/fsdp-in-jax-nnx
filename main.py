@@ -552,6 +552,8 @@ def main(args: argparse.Namespace) -> None:
             logging.info("Checkpoint restored successfully")
             log_shard_map("Opt state sharding after restore", opt_state)
             log_shard_map("EMA state sharding after restore", ema_state)
+            logging.info(f"Opt state after restore: {opt_state}")
+            logging.info(f"EMA state after restore: {ema_state}")
     start_step = 0 if latest_step is None else latest_step
     local_batch_size = args.batch_size // jax.process_count()
 
