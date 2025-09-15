@@ -554,8 +554,8 @@ def main(args: argparse.Namespace) -> None:
         state_restored = ckpt_mngr.restore(
             latest_step,
             args=ocp.args.Composite(
-                opt_state=ocp.args.PyTreeRestore(opt_state_no_rngs),
-                ema_state=ocp.args.PyTreeRestore(ema_state_no_rngs),
+                opt_state=ocp.args.StandardRestore(opt_state_no_rngs),
+                ema_state=ocp.args.StandardRestore(ema_state_no_rngs),
                 # opt_rngs=ocp.args.PyTreeRestore(opt_rng_keys),
                 # ema_rngs=ocp.args.PyTreeRestore(ema_rng_keys),
             ),
