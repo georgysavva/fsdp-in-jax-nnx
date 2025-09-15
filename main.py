@@ -556,18 +556,22 @@ def main(args: argparse.Namespace) -> None:
             args=ocp.args.Composite(
                 opt_state=ocp.args.PyTreeRestore(opt_state_no_rngs),
                 ema_state=ocp.args.PyTreeRestore(ema_state_no_rngs),
-                opt_rngs=ocp.args.PyTreeRestore(opt_rng_keys),
-                ema_rngs=ocp.args.PyTreeRestore(ema_rng_keys),
+                # opt_rngs=ocp.args.PyTreeRestore(opt_rng_keys),
+                # ema_rngs=ocp.args.PyTreeRestore(ema_rng_keys),
             ),
         )
-        opt_state_no_rngs, ema_state_no_rngs, opt_rngs_keys, ema_rngs_keys = (
+        # opt_state_no_rngs, ema_state_no_rngs, opt_rngs_keys, ema_rngs_keys = (
+        #     state_restored.opt_state,
+        #     state_restored.ema_state,
+        #     state_restored.opt_rngs,
+        #     state_restored.ema_rngs,
+        # )
+        opt_state_no_rngs, ema_state_no_rngs = (
             state_restored.opt_state,
             state_restored.ema_state,
-            state_restored.opt_rngs,
-            state_restored.ema_rngs,
         )
-        opt_rngs = jax.tree_map(jax.random.wrap_key_data, opt_rngs_keys)
-        ema_rngs = jax.tree_map(jax.random.wrap_key_data, ema_rngs_keys)
+        # opt_rngs = jax.tree_map(jax.random.wrap_key_data, opt_rngs_keys)
+        # ema_rngs = jax.tree_map(jax.random.wrap_key_data, ema_rngs_keys)
         if jax.process_index() == 0:
             logging.info("Checkpoint restored successfully")
             logging.info(f"Opt state no rngs after restore: {opt_state_no_rngs}")
