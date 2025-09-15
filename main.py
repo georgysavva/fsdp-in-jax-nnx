@@ -546,6 +546,11 @@ def main(args: argparse.Namespace) -> None:
 
         ema_rngs, ema_state_no_rngs = nnx.filter_state(ema_state, nnx.RngKey, ...)
         ema_rng_keys = jax.tree.map(jax.random.key_data, ema_rngs)
+        log_shard_map("Opt state no rngs sharding before restore", opt_state_no_rngs)
+        log_shard_map("EMA state no rngs sharding before restore", ema_state_no_rngs)
+        log_shard_map("Opt rngs sharding before restore", opt_rng_keys)
+        log_shard_map("EMA rngs sharding before restore", ema_rng_keys)
+
         state_restored = ckpt_mngr.restore(
             latest_step,
             args=ocp.args.Composite(
