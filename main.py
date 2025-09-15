@@ -628,12 +628,11 @@ def main(args: argparse.Namespace) -> None:
             y_batch, mesh.devices.flatten(), data_axis
         )
 
-        with mesh:
-            opt_state, train_loss = train_step_fn(
-                opt_graph, opt_state, x_batch, y_batch, args.add_noise
-            )
+        opt_state, train_loss = train_step_fn(
+            opt_graph, opt_state, x_batch, y_batch, args.add_noise
+        )
 
-            ema_state = update_ema_fn(opt_state["model"], ema_state, ema_decay)
+        ema_state = update_ema_fn(opt_state["model"], ema_state, ema_decay)
 
         if jax.process_index() == 0 and (step + 1) % args.log_interval == 0:
             logging.info(f"Step {step+1}, Train Loss: {train_loss:.6f}")
@@ -648,14 +647,13 @@ def main(args: argparse.Namespace) -> None:
             y_test = make_fsarray_from_local_slice(
                 y_test, mesh.devices.flatten(), data_axis
             )
-            with mesh:
-                test_loss, y_pred_model = test_step_fn(
-                    model_graph_eval, opt_state["model"], x_test, y_test
-                )
+            test_loss, y_pred_model = test_step_fn(
+                model_graph_eval, opt_state["model"], x_test, y_test
+            )
 
-                test_loss_ema, y_pred_ema = test_step_fn(
-                    model_graph_eval, ema_state, x_test, y_test
-                )
+            test_loss_ema, y_pred_ema = test_step_fn(
+                model_graph_eval, ema_state, x_test, y_test
+            )
 
             y_pred_model = jax.experimental.multihost_utils.process_allgather(
                 y_pred_model, tiled=True
