@@ -413,6 +413,9 @@ def make_fsarray_from_local_slice(
     Takes a local data slice and creates a globally sharded JAX array
     by distributing the data across multiple devices and processes.
 
+    This function is adapted from:
+    https://github.com/google-research/big_vision/blob/0127fb6b337ee2a27bf4e54dea79cff176527356/big_vision/utils.py#L1388-L1409
+
     Args:
         local_slice: Local portion of the data on this process.
         global_devices: List of all devices across all processes.
