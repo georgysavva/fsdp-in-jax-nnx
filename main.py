@@ -537,17 +537,37 @@ def main(args: argparse.Namespace) -> None:
     latest_step = None
     latest_step = ckpt_mngr.latest_step()
     if latest_step is not None:
+
+        opt_rngs, opt_state_no_rngs = nnx.filter_state(opt_state, nnx.RngKey, ...)
+        opt_rng_keys = jax.tree.map(jax.random.key_data, opt_rngs)
+
+        ema_rngs, ema_state_no_rngs = nnx.filter_state(ema_state, nnx.RngKey, ...)
+        ema_rng_keys = jax.tree.map(jax.random.key_data, ema_rngs)
         state_restored = ckpt_mngr.restore(
             latest_step,
             args=ocp.args.Composite(
-                opt_state=ocp.args.PyTreeRestore(opt_state),
-                ema_state=ocp.args.PyTreeRestore(ema_state),
+                opt_state=ocp.args.PyTreeRestore(opt_state_no_rngs),
+                ema_state=ocp.args.PyTreeRestore(ema_state_no_rngs),
+                opt_rngs=ocp.args.PyTreeRestore(opt_rng_keys),
+                ema_rngs=ocp.args.PyTreeRestore(ema_rng_keys),
             ),
         )
-        opt_state, ema_state = (
+        opt_state_no_rngs, ema_state_no_rngs, opt_rngs_keys, ema_rngs_keys = (
             state_restored.opt_state,
             state_restored.ema_state,
+            state_restored.opt_rngs,
+            state_restored.ema_rngs,
         )
+        opt_rngs = jax.tree_map(jax.random.wrap_key_data, opt_rngs_keys)
+        ema_rngs = jax.tree_map(jax.random.wrap_key_data, ema_rngs_keys)
+        if jax.process_index() == 0:
+            logging.info("Checkpoint restored successfully")
+            logging.info(f"Opt state no rngs after restore: {opt_state_no_rngs}")
+            logging.info(f"Opt rngs after restore: {opt_rngs}")
+            logging.info(f"EMA state no rngs after restore: {ema_state_no_rngs}")
+            logging.info(f"EMA rngs after restore: {ema_rngs}")
+        opt_state = nnx.merge_state(opt_state_no_rngs, opt_rngs)
+        ema_state = nnx.merge_state(ema_state_no_rngs, ema_rngs)
         if jax.process_index() == 0:
             logging.info("Checkpoint restored successfully")
             log_shard_map("Opt state sharding after restore", opt_state)
@@ -700,11 +720,23 @@ def main(args: argparse.Namespace) -> None:
         if (step + 1) % args.save_interval == 0:
             if jax.process_index() == 0:
                 logging.info(f"Saving checkpoint at step {step + 1}")
+            opt_rngs, opt_state_no_rngs = nnx.filter_state(opt_state, nnx.RngKey, ...)
+            opt_rng_keys = jax.tree.map(jax.random.key_data, opt_rngs)
+
+            ema_rngs, ema_state_no_rngs = nnx.filter_state(ema_state, nnx.RngKey, ...)
+            ema_rng_keys = jax.tree.map(jax.random.key_data, ema_rngs)
+            if jax.process_index() == 0:
+                logging.info(f"Opt rngs: {opt_rngs}")
+                logging.info(f"EMA rngs: {ema_rngs}")
+                logging.info(f"Opt state no rngs: {opt_state_no_rngs}")
+                logging.info(f"EMA state no rngs: {ema_state_no_rngs}")
             ckpt_mngr.save(
                 step + 1,
                 args=ocp.args.Composite(
-                    opt_state=ocp.args.PyTreeSave(opt_state),
-                    ema_state=ocp.args.PyTreeSave(ema_state),
+                    opt_state=ocp.args.PyTreeSave(opt_state_no_rngs),
+                    opt_rngs=ocp.args.PyTreeSave(opt_rng_keys),
+                    ema_state=ocp.args.PyTreeSave(ema_state_no_rngs),
+                    ema_rngs=ocp.args.PyTreeSave(ema_rng_keys),
                 ),
             )
             if jax.process_index() == 0:
