@@ -758,7 +758,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--log_interval", type=int, default=100)
     parser.add_argument("--save_interval", type=int, default=1000)
-    parser.add_argument("--checkpoint_dir", type=str, default="checkpoints/")
+    parser.add_argument("--checkpoint_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="outputs/")
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--add_noise", action="store_true", default=False)
