@@ -1,0 +1,5 @@
+checkpoints/
+outputs/
+experiments/
+logs/
+local/

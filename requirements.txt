@@ -1,0 +1,8 @@
+optax==0.2.4
+orbax-checkpoint==0.11.16
+flax==0.10.4
+numpy==1.26.4
+torch==2.7.0
+matplotlib==3.10.3
+gcsfs==2025.9.0
+jax[tpu]==0.5.1
