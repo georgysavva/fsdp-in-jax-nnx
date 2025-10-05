@@ -45,7 +45,7 @@ python main.py \
 
 The repository contains a convenient script to run `main.py` on GCP TPUs.
 
-First create a shell script file that looks like this:
+First, create a shell script file that looks like this:
 
 ```shell
 TPU={your GCP tpu name}
@@ -62,4 +62,4 @@ python run_on_tpu.py \
     --experiment_name=${EXP_NAME} \
     --checkpoint_dir={path to a GCP bucket folder}" 2>&1 | tee "$LOGFILE"
 ```
-Now you can run your shell script file. It will execute `run_on_tpu.py`, which will download this repository onto the TPU, create the conda env, install the python dependencies, and run `main.py`. It will save the checkpoint to the GCP bucket folder and outputs to the `$HOME/outputs/` directory on the TPU machine with index 0. 
+Now you can run your shell script file. It will execute `run_on_tpu.py`, which will download this repository onto the TPU, create the conda env, install the Python dependencies, and run `main.py`. It will save the checkpoint to the GCP bucket folder and outputs to the `$HOME/outputs/` directory on the TPU machine with index 0. 
