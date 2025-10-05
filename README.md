@@ -16,34 +16,7 @@ The code in this repository supports the following:
 - Tested on 
 
 ## Running
-Here are the instructions you need to follow to try out the `main.py` code yourself.
-
-### Local
-
-The project uses conda. Create the environment using:
-
-```bash
-conda env create -f environment.yml
-conda activate fsdp-jax
-```
-
-Install dependencies with:
-
-```bash
-pip install -r requirements.txt
-```
-
-Run on your machine with:
-
-```bash
-python main.py \
-    --experiment_name="fsdp_test" \
-    --checkpoint_dir="{absolute path to a dir to save checkpoints to" \
-```
-
-### GCP TPU deploy
-
-The repository contains a convenient script to run `main.py` on GCP TPUs.
+Here are the instructions you need to follow to try out the `main.py` code yourself. The repository contains a convenient script to run `main.py` on GCP TPUs.
 
 First, create a shell script file that looks like this:
 
