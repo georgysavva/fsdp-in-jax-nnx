@@ -497,11 +497,10 @@ def main(args: argparse.Namespace) -> None:
     setup_logging()
     logging.info(f"Starting training with args: {args}")
 
-    if not args.gpu:
-        assert args.checkpoint_dir.startswith(
-            "gs://"
-        ), "Checkpoint directory must be a GCS path"
-        jax.distributed.initialize()
+    assert args.checkpoint_dir.startswith(
+        "gs://"
+    ), "Checkpoint directory must be a GCS path"
+    jax.distributed.initialize()
     logging.info(f"Available JAX devices: {jax.devices()}")
 
     data_axis = "data"
@@ -515,11 +514,6 @@ def main(args: argparse.Namespace) -> None:
         init_fn,
         out_shardings=(repl_sharding, opt_state_sharding, ema_state_sharding),
     )()
-    if jax.process_index() == 0:
-        log_shard_map("Opt state sharding", opt_state)
-        log_shard_map("EMA state sharding", ema_state)
-    if jax.process_index() == 0:
-        logging.info("Merging optimizer graph and state")
     opt = nnx.merge(opt_graph, opt_state)
     opt.model.train()
     opt_graph, opt_state = nnx.split(opt)
@@ -534,8 +528,6 @@ def main(args: argparse.Namespace) -> None:
             enable_async_checkpointing=False,
         ),
     )
-    if jax.process_index() == 0:
-        logging.info("Checkpoint manager initialized")
 
     latest_step = None
     latest_step = ckpt_mngr.latest_step()
@@ -546,10 +538,6 @@ def main(args: argparse.Namespace) -> None:
 
         ema_rngs, ema_state_no_rngs = nnx.filter_state(ema_state, nnx.RngKey, ...)
         ema_rng_keys = jax.tree.map(jax.random.key_data, ema_rngs)
-        log_shard_map("Opt state no rngs sharding before restore", opt_state_no_rngs)
-        log_shard_map("EMA state no rngs sharding before restore", ema_state_no_rngs)
-        log_shard_map("Opt rngs sharding before restore", opt_rng_keys)
-        log_shard_map("EMA rngs sharding before restore", ema_rng_keys)
 
         state_restored = ckpt_mngr.restore(
             latest_step,
@@ -570,18 +558,8 @@ def main(args: argparse.Namespace) -> None:
         ema_rngs = jax.tree_map(jax.random.wrap_key_data, ema_rngs_keys)
         if jax.process_index() == 0:
             logging.info("Checkpoint restored successfully")
-            logging.info(f"Opt state no rngs after restore: {opt_state_no_rngs}")
-            logging.info(f"Opt rngs after restore: {opt_rngs}")
-            logging.info(f"EMA state no rngs after restore: {ema_state_no_rngs}")
-            logging.info(f"EMA rngs after restore: {ema_rngs}")
         opt_state = nnx.merge_state(opt_state_no_rngs, opt_rngs)
         ema_state = nnx.merge_state(ema_state_no_rngs, ema_rngs)
-        if jax.process_index() == 0:
-            logging.info("Checkpoint restored successfully")
-            log_shard_map("Opt state sharding after restore", opt_state)
-            log_shard_map("EMA state sharding after restore", ema_state)
-            logging.info(f"Opt state after restore: {opt_state}")
-            logging.info(f"EMA state after restore: {ema_state}")
     start_step = 0 if latest_step is None else latest_step
     local_batch_size = args.batch_size // jax.process_count()
 
@@ -731,11 +709,6 @@ def main(args: argparse.Namespace) -> None:
 
             ema_rngs, ema_state_no_rngs = nnx.filter_state(ema_state, nnx.RngKey, ...)
             ema_rng_keys = jax.tree.map(jax.random.key_data, ema_rngs)
-            if jax.process_index() == 0:
-                logging.info(f"Opt rngs: {opt_rngs}")
-                logging.info(f"EMA rngs: {ema_rngs}")
-                logging.info(f"Opt state no rngs: {opt_state_no_rngs}")
-                logging.info(f"EMA state no rngs: {ema_state_no_rngs}")
             ckpt_mngr.save(
                 step + 1,
                 args=ocp.args.Composite(
@@ -752,7 +725,6 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--experiment_name", type=str, default="fsdp")
-    parser.add_argument("--gpu", action="store_true", default=False)
     parser.add_argument("--steps", type=int, default=20_000)
     parser.add_argument("--test_interval", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=256)
