@@ -1,5 +1,5 @@
 # FSDP in JAX NNX Tutorial [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/georgysavva/fsdp-in-jax-nnx/blob/dev/fsdp_in_jax_nnx.ipynb)
-FSDP is an essential technique for training large models that don't fit into a single device. There are tutorials out there on how to set it up in JAX, but none of them do it for the modern, Flax NNX API, and those tutorials don't cover the whole training recipe like checkpointing and rngs that a production code would need. 
+FSDP is an essential technique for training large models that don't fit into a single device. There are tutorials out there on how to set it up in JAX, but none of them do it for the modern, Flax NNX API, and those tutorials don't cover the whole training recipe like checkpointing and rngs that a production code needs. 
 
 Closing this gap, this repository contains a tutorial on how to implement FSDP in JAX using NNX modules. You can view the step-by-step guide in the [notebook](https://colab.research.google.com/github/georgysavva/fsdp-in-jax-nnx/blob/dev/fsdp_in_jax_nnx.ipynb) or check out the complete code in the [main.py](https://github.com/georgysavva/fsdp-in-jax-nnx/blob/dev/main.py) file.
 
