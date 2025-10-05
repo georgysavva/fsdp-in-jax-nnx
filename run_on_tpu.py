@@ -77,7 +77,7 @@ def pull_repo(args):
 
 
 def install_dependencies(args):
-    command = f"cd {args.git_repo_dir}; source $HOME/miniconda3/bin/activate fsdp-jax; pip install -e .; pip install -r requirements_tpu.txt"
+    command = f"cd {args.git_repo_dir}; source $HOME/miniconda3/bin/activate fsdp-jax; pip install -e .; pip install -r requirements.txt"
     return format_gcloud_command(args, command)
 
 
