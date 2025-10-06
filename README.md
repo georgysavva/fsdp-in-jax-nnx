@@ -13,7 +13,7 @@ The code in this repository supports the following:
 - The same checkpoint can be run on TPUs with a different number of devices
 - EMA version of the model
 - All model operation functions are JIT compiled
-- Tested on 
+- Tested on v4 and v5p GCP TPUs
 
 ## Running
 Here are the instructions you need to follow to try out the `main.py` code yourself. The repository contains a convenient script to run `main.py` on GCP TPUs.
