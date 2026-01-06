@@ -36,3 +36,14 @@ python run_on_tpu.py \
     --checkpoint_dir={path to a GCP bucket folder}" 2>&1 | tee "$LOGFILE"
 ```
 Now you can run your shell script file. It will execute `run_on_tpu.py`, which will download this repository onto the TPU, create the conda env, install the Python dependencies, and run `main.py`. It will save the checkpoint to the GCP bucket folder and outputs to the `$HOME/outputs/` directory on the TPU machine with index 0. 
+
+## Citation
+
+```text
+@article{savva2025fsdpjax,
+      title={FSDP tutorial for JAX NNX},
+      author={Georgy Savva},
+      year={2025},
+      url={https://github.com/georgysavva/fsdp-in-jax-nnx},
+}
+```
